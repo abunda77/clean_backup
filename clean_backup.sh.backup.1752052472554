@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# set -e: Keluar segera jika ada perintah yang gagal dan tidak berhasil dieksekusi.
+# set -e: Keluar segera jika ada perintah yang gagal.
 set -eo pipefail
 
 # --- Konfigurasi ---
