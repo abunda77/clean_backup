@@ -5,6 +5,15 @@ set -eo pipefail
 
 # --- Konfigurasi ---
 BACKUP_DIR="/home/clp/backups"
+LOG_FILE="/var/log/clean_backup.log"
+CLEAN_BACKUP_STATS_FILE="$(mktemp -t clean_backup_stats.XXXXXX 2>/dev/null || printf '/tmp/clean_backup_stats.%s' "$$")"
+
+trap 'rm -f "$CLEAN_BACKUP_STATS_FILE"' EXIT
+
+if [ ! -f "$LOG_FILE" ]; then
+    sudo touch "$LOG_FILE"
+    sudo chmod 664 "$LOG_FILE"
+fi
 
 # ===================================================================================
 # DEFINISI WARNA DAN ANIMASI UNTUK TERMINAL GELAP
@@ -43,6 +52,15 @@ spinner() {
         sleep $delay
     done
     printf "\r   \r" # Hapus spinner
+}
+
+format_bytes() {
+    local bytes=${1:-0}
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec --suffix=B "$bytes"
+    else
+        echo "${bytes} B"
+    fi
 }
 
 # Fungsi untuk menampilkan progress bar (untuk operasi yang memakan waktu)
@@ -113,21 +131,94 @@ clean_netdata() {
 }
 
 clean_backups() {
+    local stats_file="$CLEAN_BACKUP_STATS_FILE"
+
     if [ ! -d "$BACKUP_DIR" ]; then
-        return 0 # Kembali dengan sukses karena ini bukan error
+        {
+            echo "status=missing"
+        } > "$stats_file"
+        return 0
     fi
     cd "$BACKUP_DIR" || return 1
     
+    local before_bytes=$(du -sb . 2>/dev/null | awk '{print $1}')
+    if [ -z "$before_bytes" ]; then
+        before_bytes=0
+    fi
+
     # Hitung jumlah folder sebelum dihapus
     local folder_count=$(find . -mindepth 1 -maxdepth 1 -type d | wc -l)
+    local removed_count=0
     
     if [ $folder_count -gt 0 ]; then
         # Hapus folder satu per satu untuk efek visual
-        find . -mindepth 1 -maxdepth 1 -type d | while read -r folder; do
+        find . -mindepth 1 -maxdepth 1 -type d -print0 | while IFS= read -r -d '' folder; do
             rm -rf "$folder"
             sleep 0.1  # Sedikit delay untuk efek visual
         done
+        removed_count=$folder_count
     fi
+
+    local after_bytes=$(du -sb . 2>/dev/null | awk '{print $1}')
+    if [ -z "$after_bytes" ]; then
+        after_bytes=0
+    fi
+
+    local deleted_bytes=$((before_bytes - after_bytes))
+    if [ "$deleted_bytes" -lt 0 ]; then
+        deleted_bytes=0
+    fi
+
+    cat <<EOF > "$stats_file"
+status=ok
+before=$before_bytes
+after=$after_bytes
+deleted=$deleted_bytes
+folders_removed=$removed_count
+EOF
+}
+
+report_backup_stats() {
+    local stats_file="$CLEAN_BACKUP_STATS_FILE"
+
+    if [ ! -f "$stats_file" ]; then
+        return
+    fi
+
+    local status="" before="0" after="0" deleted="0" folders_removed="0"
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            status) status="$value" ;;
+            before) before="$value" ;;
+            after) after="$value" ;;
+            deleted) deleted="$value" ;;
+            folders_removed) folders_removed="$value" ;;
+        esac
+    done < "$stats_file"
+
+    rm -f "$stats_file"
+
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    if [ "$status" = "missing" ]; then
+        echo -e "${YELLOW}Direktori backup ${BACKUP_DIR} tidak ditemukan.${NC}"
+        echo "[$timestamp] Backup directory missing: $BACKUP_DIR" | sudo tee -a "$LOG_FILE" > /dev/null
+        return
+    fi
+
+    local before_hr=$(format_bytes "$before")
+    local after_hr=$(format_bytes "$after")
+    local deleted_hr=$(format_bytes "$deleted")
+
+    echo -e "${GRAY}Ukuran sebelum pembersihan: ${WHITE}${before_hr} (${before} B)${NC}"
+    echo -e "${GRAY}Ukuran setelah pembersihan: ${WHITE}${after_hr} (${after} B)${NC}"
+    echo -e "${GRAY}Total ukuran dihapus: ${WHITE}${deleted_hr} (${deleted} B)${NC}"
+    echo -e "${GRAY}Folder yang dihapus: ${WHITE}${folders_removed}${NC}"
+
+    printf '[%s] Backup cleanup - before: %s (%s B), after: %s (%s B), freed: %s (%s B), folders removed: %s\n' \
+        "$timestamp" "$before_hr" "$before" "$after_hr" "$after" "$deleted_hr" "$deleted" "$folders_removed" | \
+        sudo tee -a "$LOG_FILE" > /dev/null
 }
 
 # ===================================================================================
@@ -176,6 +267,7 @@ echo -e "\n${GREEN}${BOLD}╭─────────────────
 echo -e "${GREEN}${BOLD}│  📁 PEMBERSIHAN DIREKTORI BACKUP SPESIFIK                  │${NC}"
 echo -e "${GREEN}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}\n"
 do_task "Menghapus folder backup lama di $BACKUP_DIR" "clean_backups"
+report_backup_stats
 
 
 # Footer dengan animasi selesai
