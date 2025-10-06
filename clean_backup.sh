@@ -5,14 +5,65 @@ set -eo pipefail
 
 # --- Konfigurasi ---
 BACKUP_DIR="/home/clp/backups"
-LOG_FILE="/home/alwyzon/clean_backup.log"
+LOG_FILE="${LOG_FILE:-/home/alwyzon/clean_backup.log}"
 CLEAN_BACKUP_STATS_FILE="$(mktemp -t clean_backup_stats.XXXXXX 2>/dev/null || printf '/tmp/clean_backup_stats.%s' "$$")"
 
 trap 'rm -f "$CLEAN_BACKUP_STATS_FILE"' EXIT
 
+# Fungsi untuk menulis log dengan penanganan error
+write_log() {
+    local message="$1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local log_entry="[$timestamp] $message"
+    
+    # Coba tulis ke log file dengan berbagai metode
+    if [ -w "$(dirname "$LOG_FILE")" ]; then
+        # Jika direktori log bisa ditulis, coba tulis langsung
+        echo "$log_entry" >> "$LOG_FILE" 2>/dev/null || {
+            # Jika gagal, coba dengan sudo
+            echo "$log_entry" | sudo tee -a "$LOG_FILE" > /dev/null 2>/dev/null || {
+                # Jika masih gagal, tulis ke syslog
+                logger -t clean_backup "$message" 2>/dev/null || {
+                    # Terakhir, tulis ke stderr
+                    echo "$log_entry" >&2
+                }
+            }
+        }
+    else
+        # Jika direktori tidak bisa ditulis, gunakan sudo
+        echo "$log_entry" | sudo tee -a "$LOG_FILE" > /dev/null 2>/dev/null || {
+            # Jika gagal, coba buat file log dulu
+            sudo touch "$LOG_FILE" 2>/dev/null && sudo chmod 664 "$LOG_FILE" 2>/dev/null && \
+            echo "$log_entry" | sudo tee -a "$LOG_FILE" > /dev/null 2>/dev/null || {
+                # Jika masih gagal, tulis ke syslog
+                logger -t clean_backup "$message" 2>/dev/null || {
+                    # Terakhir, tulis ke stderr
+                    echo "$log_entry" >&2
+                }
+            }
+        }
+    fi
+}
+
+# Inisialisasi file log dengan penanganan error yang lebih baik
 if [ ! -f "$LOG_FILE" ]; then
-    sudo touch "$LOG_FILE"
-    sudo chmod 664 "$LOG_FILE"
+    # Coba buat file log tanpa sudo dulu
+    touch "$LOG_FILE" 2>/dev/null || {
+        # Jika gagal, coba dengan sudo
+        sudo touch "$LOG_FILE" 2>/dev/null || {
+            # Jika masih gagal, gunakan alternatif
+            LOG_FILE="/tmp/clean_backup.log"
+            touch "$LOG_FILE" 2>/dev/null || {
+                # Jika tetap gagal, fallback ke syslog
+                write_log "Failed to create log file, using syslog fallback"
+            }
+        }
+    }
+    
+    # Set permission jika file berhasil dibuat
+    if [ -f "$LOG_FILE" ]; then
+        chmod 664 "$LOG_FILE" 2>/dev/null || sudo chmod 664 "$LOG_FILE" 2>/dev/null
+    fi
 fi
 
 # ===================================================================================
@@ -203,7 +254,7 @@ report_backup_stats() {
 
     if [ "$status" = "missing" ]; then
         echo -e "${YELLOW}Direktori backup ${BACKUP_DIR} tidak ditemukan.${NC}"
-        echo "[$timestamp] Backup directory missing: $BACKUP_DIR" | sudo tee -a "$LOG_FILE" > /dev/null
+        write_log "Backup directory missing: $BACKUP_DIR"
         return
     fi
 
@@ -216,9 +267,7 @@ report_backup_stats() {
     echo -e "${GRAY}Total ukuran dihapus: ${WHITE}${deleted_hr} (${deleted} B)${NC}"
     echo -e "${GRAY}Folder yang dihapus: ${WHITE}${folders_removed}${NC}"
 
-    printf '[%s] Backup cleanup - before: %s (%s B), after: %s (%s B), freed: %s (%s B), folders removed: %s\n' \
-        "$timestamp" "$before_hr" "$before" "$after_hr" "$after" "$deleted_hr" "$deleted" "$folders_removed" | \
-        sudo tee -a "$LOG_FILE" > /dev/null
+    write_log "Backup cleanup - before: $before_hr ($before B), after: $after_hr ($after B), freed: $deleted_hr ($deleted B), folders removed: $folders_removed"
 }
 
 # ===================================================================================
