@@ -5,7 +5,7 @@ set -eo pipefail
 
 # --- Konfigurasi ---
 BACKUP_DIR="/home/clp/backups"
-LOG_FILE="/var/log/clean_backup.log"
+LOG_FILE="/home/alwyzon/clean_backup.log"
 CLEAN_BACKUP_STATS_FILE="$(mktemp -t clean_backup_stats.XXXXXX 2>/dev/null || printf '/tmp/clean_backup_stats.%s' "$$")"
 
 trap 'rm -f "$CLEAN_BACKUP_STATS_FILE"' EXIT
