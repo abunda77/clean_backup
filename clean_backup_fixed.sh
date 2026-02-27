@@ -1,60 +1,60 @@
 #!/usr/bin/env bash
 
-# set -e: Keluar segera jika ada perintah yang gagal dan tidak berhasil dieksekusi.
+# Exit immediately if a command exits with a non-zero status
 set -eo pipefail
 
-# --- Konfigurasi ---
+# --- Configuration ---
 BACKUP_DIR="/home/clp/backups"
 LOG_FILE="${LOG_FILE:-/home/alwyzon/clean_backup.log}"
 CLEAN_BACKUP_STATS_FILE="$(mktemp -t clean_backup_stats.XXXXXX 2>/dev/null || printf '/tmp/clean_backup_stats.%s' "$$")"
 
 trap 'rm -f "$CLEAN_BACKUP_STATS_FILE"' EXIT
 
-# Fungsi untuk menulis log dengan penanganan error yang lebih baik
+# Enhanced logging function with multiple fallback mechanisms
 write_log() {
     local message="$1"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local log_entry="[$timestamp] $message"
     
-    # Prioritas 1: Coba tulis ke syslog (paling reliable di cron)
+    # Priority 1: Write to syslog (most reliable in cron)
     if logger -t clean_backup "$message" 2>/dev/null; then
         return 0
     fi
     
-    # Prioritas 2: Coba tulis ke file log langsung
+    # Priority 2: Write directly to log file
     if echo "$log_entry" >> "$LOG_FILE" 2>/dev/null; then
         return 0
     fi
     
-    # Prioritas 3: Coba dengan sudo
+    # Priority 3: Try with sudo
     if echo "$log_entry" | sudo tee -a "$LOG_FILE" > /dev/null 2>&1; then
         return 0
     fi
     
-    # Prioritas 4: Coba buat file log dulu dengan sudo
+    # Priority 4: Create log file first with sudo
     if sudo touch "$LOG_FILE" 2>/dev/null && sudo chmod 664 "$LOG_FILE" 2>/dev/null; then
         if echo "$log_entry" | sudo tee -a "$LOG_FILE" > /dev/null 2>&1; then
             return 0
         fi
     fi
     
-    # Prioritas 5: Fallback ke /tmp
+    # Priority 5: Fallback to /tmp
     local fallback_log="/tmp/clean_backup_fallback.log"
     if echo "$log_entry" >> "$fallback_log" 2>/dev/null; then
         return 0
     fi
     
-    # Prioritas 6: Terakhir, tulis ke stderr
+    # Priority 6: Last resort - write to stderr
     echo "$log_entry" >&2
     return 1
 }
 
-# Fungsi untuk memastikan script berjalan dengan environment yang benar
+# Ensure script runs with correct environment setup
 setup_environment() {
-    # Pastikan PATH lengkap untuk cron
+    # Ensure full PATH for cron compatibility
     export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     
-    # Pastikan HOME terdefinisi
+    # Ensure HOME is defined
     if [ -z "$HOME" ]; then
         export HOME="/home/alwyzon"
     fi
@@ -66,17 +66,17 @@ setup_environment() {
     write_log "BACKUP_DIR: $BACKUP_DIR"
 }
 
-# Inisialisasi file log dengan penanganan error yang lebih baik
+# Initialize log file with enhanced error handling
 init_log_file() {
-    # Selalu coba tulis ke syslog untuk indikasi script berjalan
+    # Always try to write to syslog as indicator that script started
     logger -t clean_backup "Script initialization started" 2>/dev/null || true
     
     if [ ! -f "$LOG_FILE" ]; then
-        # Coba buat file log tanpa sudo dulu
+        # Try creating log file without sudo first
         if ! touch "$LOG_FILE" 2>/dev/null; then
-            # Jika gagal, coba dengan sudo
+            # If failed, try with sudo
             if ! sudo touch "$LOG_FILE" 2>/dev/null; then
-                # Jika masih gagal, gunakan alternatif
+                # If still failed, use fallback location
                 LOG_FILE="/tmp/clean_backup.log"
                 touch "$LOG_FILE" 2>/dev/null || {
                     write_log "Failed to create any log file, using syslog only"
@@ -84,7 +84,7 @@ init_log_file() {
             fi
         fi
         
-        # Set permission jika file berhasil dibuat
+        # Set permissions if file was created successfully
         if [ -f "$LOG_FILE" ]; then
             chmod 664 "$LOG_FILE" 2>/dev/null || sudo chmod 664 "$LOG_FILE" 2>/dev/null || true
         fi
@@ -94,22 +94,22 @@ init_log_file() {
 }
 
 # ===================================================================================
-# DEFINISI WARNA DAN ANIMASI UNTUK TERMINAL GELAP
+# COLOR DEFINITIONS AND TERMINAL ANIMATIONS FOR DARK THEME
 # ===================================================================================
 
-# Definisi warna yang kontras dengan background gelap
-RED='\033[1;31m'          # Merah terang
-GREEN='\033[1;32m'        # Hijau terang
-YELLOW='\033[1;33m'       # Kuning terang
-BLUE='\033[1;34m'         # Biru terang
-MAGENTA='\033[1;35m'      # Magenta terang
-CYAN='\033[1;36m'         # Cyan terang
-WHITE='\033[1;37m'        # Putih terang
-GRAY='\033[0;90m'         # Abu-abu gelap
-BOLD='\033[1m'            # Tebal
+# Color definitions optimized for dark terminal backgrounds
+RED='\033[1;31m'          # Bright Red
+GREEN='\033[1;32m'        # Bright Green
+YELLOW='\033[1;33m'       # Bright Yellow
+BLUE='\033[1;34m'         # Bright Blue
+MAGENTA='\033[1;35m'      # Bright Magenta
+CYAN='\033[1;36m'         # Bright Cyan
+WHITE='\033[1;37m'        # Bright White
+GRAY='\033[0;90m'         # Dark Gray
+BOLD='\033[1m'            # Bold text
 NC='\033[0m'              # No Color (reset)
 
-# Simbol Unicode untuk visual feedback yang menarik
+# Unicode symbols for enhanced visual feedback
 CHECKMARK="${GREEN}✓${NC}"
 CROSS="${RED}✗${NC}"
 ARROW="${CYAN}➤${NC}"
@@ -117,14 +117,14 @@ STAR="${YELLOW}★${NC}"
 GEAR="${BLUE}⚙${NC}"
 ROCKET="${MAGENTA}🚀${NC}"
 
-# Cek apakah script berjalan di terminal (interaktif) atau cron
+# Check if script is running in an interactive terminal or via cron
 is_interactive() {
     [ -t 0 ] && [ -t 1 ]
 }
 
-# Fungsi untuk menampilkan animasi spinner (hanya jika interaktif)
+# Display spinner animation (interactive mode only)
 spinner() {
-    # Skip spinner jika tidak interaktif (cron)
+    # Skip spinner in non-interactive mode (cron)
     if ! is_interactive; then
         return 0
     fi
@@ -139,7 +139,7 @@ spinner() {
         i=$(( (i+1) % ${#spinstr} ))
         sleep $delay
     done
-    printf "\r   \r" # Hapus spinner
+    printf "\r   \r" # Clear spinner
 }
 
 format_bytes() {
@@ -151,9 +151,9 @@ format_bytes() {
     fi
 }
 
-# Fungsi untuk menampilkan progress bar (hanya jika interaktif)
+# Display progress bar with percentage (interactive mode only)
 show_progress_bar() {
-    # Skip progress bar jika tidak interaktif (cron)
+    # Skip progress bar in non-interactive mode (cron)
     if ! is_interactive; then
         write_log "Progress: $2"
         return 0
@@ -176,9 +176,9 @@ show_progress_bar() {
     printf "\n"
 }
 
-# Fungsi untuk menampilkan pesan dengan delay (hanya jika interaktif)
+# Display message with typing effect (interactive mode only)
 type_message() {
-    # Skip typing effect jika tidak interaktif (cron)
+    # Skip typing effect in non-interactive mode (cron)
     if ! is_interactive; then
         echo "$1"
         return 0
@@ -194,7 +194,7 @@ type_message() {
     printf "\n"
 }
 
-# Fungsi pembungkus untuk menjalankan tugas dengan spinner dan status
+# Wrapper function to execute tasks with visual feedback
 do_task() {
     local description="$1"
     local command="$2"
@@ -203,7 +203,7 @@ do_task() {
     # Log task start
     write_log "Starting task: $description"
 
-    # Jika tidak interaktif, jalankan langsung tanpa spinner
+    # Non-interactive mode: execute directly without spinner
     if ! is_interactive; then
         if eval "$command"; then
             write_log "Task completed successfully: $description"
@@ -215,30 +215,30 @@ do_task() {
         fi
     fi
 
-    # Mode interaktif: tampilkan spinner
+    # Interactive mode: display spinner
     printf "${ARROW} %-60s" "$description"
 
-    # Jalankan perintah di background, sembunyikan outputnya agar tidak mengganggu spinner
+    # Run command in background, suppress output to avoid interfering with spinner
     eval "$command" &> /dev/null &
     
-    # Jalankan spinner selagi perintah di background bekerja
+    # Run spinner while command executes in background
     spinner $!
 
-    # Tunggu perintah selesai dan tangkap status keluarnya
+    # Wait for command completion and capture exit status
     wait $! || exit_code=$?
 
-    # Cetak status berdasarkan exit code dengan simbol yang menarik
+    # Print status based on exit code with visual indicators
     if [ $exit_code -eq 0 ]; then
-        echo -e "[${GREEN}${BOLD} ✓ SUKSES ${NC}]"
+        echo -e "[${GREEN}${BOLD} ✓ DONE ${NC}]"
         write_log "Task completed successfully: $description"
     else
-        echo -e "[${RED}${BOLD} ✗ GAGAL ${NC}]"
+        echo -e "[${RED}${BOLD} ✗ FAILED ${NC}]"
         write_log "Task failed: $description (exit code: $exit_code)"
         return $exit_code
     fi
 }
 
-# Fungsi khusus untuk tugas kompleks (Netdata & Backup)
+# Specialized cleanup functions for complex operations
 clean_netdata() {
     if systemctl is-active --quiet netdata; then
         sudo systemctl stop netdata
@@ -268,19 +268,19 @@ clean_backups() {
         before_bytes=0
     fi
 
-    # Hitung jumlah folder sebelum dihapus
+    # Count folders before deletion
     local folder_count=$(find . -mindepth 1 -maxdepth 1 -type d | wc -l)
     local removed_count=0
     
     write_log "Found $folder_count backup folders to clean"
     
     if [ $folder_count -gt 0 ]; then
-        # Hapus folder satu per satu
+        # Remove folders one by one
         find . -mindepth 1 -maxdepth 1 -type d -print0 | while IFS= read -r -d '' folder; do
             folder_name=$(basename "$folder")
             write_log "Removing backup folder: $folder_name"
             rm -rf "$folder"
-            sleep 0.1  # Sedikit delay untuk efek visual (hanya di mode interaktif)
+            sleep 0.1  # Small delay for visual effect (interactive mode only)
         done
         removed_count=$folder_count
     fi
@@ -331,7 +331,7 @@ report_backup_stats() {
 
     if [ "$status" = "missing" ]; then
         if is_interactive; then
-            echo -e "${YELLOW}Direktori backup ${BACKUP_DIR} tidak ditemukan.${NC}"
+            echo -e "${YELLOW}⚠️  Backup directory not found: ${WHITE}${BACKUP_DIR}${NC}"
         fi
         write_log "Backup directory missing: $BACKUP_DIR"
         return
@@ -342,69 +342,83 @@ report_backup_stats() {
     local deleted_hr=$(format_bytes "$deleted")
 
     if is_interactive; then
-        echo -e "${GRAY}Ukuran sebelum pembersihan: ${WHITE}${before_hr} (${before} B)${NC}"
-        echo -e "${GRAY}Ukuran setelah pembersihan: ${WHITE}${after_hr} (${after} B)${NC}"
-        echo -e "${GRAY}Total ukuran dihapus: ${WHITE}${deleted_hr} (${deleted} B)${NC}"
-        echo -e "${GRAY}Folder yang dihapus: ${WHITE}${folders_removed}${NC}"
+        echo -e "\n${CYAN}📈 Backup Cleanup Statistics:${NC}"
+        echo -e "${GRAY}   Size before cleanup: ${WHITE}${before_hr}${NC}"
+        echo -e "${GRAY}   Size after cleanup:  ${WHITE}${after_hr}${NC}"
+        echo -e "${GRAY}   Space recovered:     ${GREEN}${deleted_hr}${NC}"
+        echo -e "${GRAY}   Folders removed:     ${WHITE}${folders_removed}${NC}\n"
     fi
 
     write_log "Backup cleanup - before: $before_hr ($before B), after: $after_hr ($after B), freed: $deleted_hr ($deleted B), folders removed: $folders_removed"
 }
 
 # ===================================================================================
-# EKSEKUSI UTAMA
+# MAIN EXECUTION
 # ===================================================================================
 
-# Setup environment dan logging
+# Setup environment and logging
 setup_environment
 init_log_file
 
 # Log script start
 write_log "=== CLEAN BACKUP SCRIPT STARTED ==="
 
-# Startup animation (hanya jika interaktif)
+# Startup animation (interactive mode only)
 if is_interactive; then
     clear
     echo -e "${MAGENTA}${BOLD}"
-    type_message "🚀 Memulai Script Pembersihan Sistem..." 0.05
-    sleep 0.5
+    type_message "🚀 Initializing System Maintenance Protocol..." 0.04
+    sleep 0.3
 
-    # Header dengan styling menarik
-    echo -e "\n${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${MAGENTA}║${BOLD}${WHITE}                  🧹 SISTEM PEMBERSIHAN 🧹                    ${NC}${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${BOLD}${CYAN}                     Script Otomatis v2.2                     ${NC}${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${GRAY}                    Optimized for Dark Theme                   ${NC}${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}\n"
+    # Professional header with system information
+    local hostname=$(hostname)
+    local os_info=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
+    local kernel=$(uname -r)
+    
+    echo -e "\n${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║${BOLD}${WHITE}              🧹 SYSTEM MAINTENANCE & OPTIMIZATION                ${NC}${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${CYAN}                        Version 2.2 Professional                  ${NC}${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}╠══════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${MAGENTA}║${GRAY}  Host: ${WHITE}%-56s${MAGENTA}║${NC}" "$hostname"
+    echo -e "${MAGENTA}║${GRAY}  OS:   ${WHITE}%-56s${MAGENTA}║${NC}" "$os_info"
+    echo -e "${MAGENTA}║${GRAY}  Time: ${WHITE}%-56s${MAGENTA}║${NC}" "$(date '+%Y-%m-%d %H:%M:%S')"
+    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}\n"
 
-    # Simulasi loading awal
-    show_progress_bar 20 "🔄 Mempersiapkan sistem pembersihan..."
+    # Initial loading simulation with information
+    show_progress_bar 15 "⚡ Preparing system scan and cleanup modules..."
     echo
+    
+    # Display disk usage information before cleanup
+    echo -e "${CYAN}📊 System Status Overview:${NC}"
+    echo -e "${GRAY}$(df -h / | awk 'NR==2 {printf "   Root Filesystem: %s used of %s (%s available)\n", $3, $2, $4}')${NC}"
+    echo -e "${GRAY}$(free -h | awk '/^Mem:/ {printf "   Memory: %s used of %s (%s available)\n", $3, $2, $7}')${NC}\n"
 else
     write_log "Running in non-interactive mode (cron)"
 fi
 
-# --- BAGIAN 1: PEMBERSIHAN SISTEM ---
+# --- SECTION 1: SYSTEM-LEVEL CLEANUP ---
 if is_interactive; then
-    echo -e "${YELLOW}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${YELLOW}${BOLD}│  ${GEAR} PEMBERSIHAN TINGKAT SISTEM ${GRAY}(membutuhkan sudo)${YELLOW}     │${NC}"
-    echo -e "${YELLOW}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}\n"
+    echo -e "\n${YELLOW}${BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${NC}"
+    echo -e "${YELLOW}${BOLD}┃  ${GEAR}  PHASE 1: SYSTEM MAINTENANCE                           ${YELLOW}┃${NC}"
+    echo -e "${YELLOW}${BOLD}┃  ${GRAY}System-wide cleanup operations requiring elevated access   ${YELLOW}┃${NC}"
+    echo -e "${YELLOW}${BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${NC}\n"
 fi
 
-do_task "Menghapus paket dependensi yang tidak diperlukan" "sudo apt autoremove -y"
-do_task "Membersihkan cache paket APT" "sudo apt clean"
+do_task "Removing orphaned package dependencies" "sudo apt autoremove -y"
+do_task "Cleaning APT package cache" "sudo apt clean"
 
-# Pembersihan /tmp dan /var/tmp - hanya file yang lebih lama dari 7 hari dan tidak digunakan
-do_task "Membersihkan file lama di /tmp (>7 hari)" "sudo find /tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
-do_task "Membersihkan direktori kosong di /tmp" "sudo find /tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
-do_task "Membersihkan file lama di /var/tmp (>7 hari)" "sudo find /var/tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
-do_task "Membersihkan direktori kosong di /var/tmp" "sudo find /var/tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
+# Cleanup /tmp and /var/tmp - only files older than 7 days that are not in use
+do_task "Purging stale temporary files from /tmp (>7 days old)" "sudo find /tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
+do_task "Removing empty directories from /tmp" "sudo find /tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
+do_task "Purging stale temporary files from /var/tmp (>7 days old)" "sudo find /var/tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
+do_task "Removing empty directories from /var/tmp" "sudo find /var/tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
 
-# Batasi ukuran journal sistem
-do_task "Membersihkan log journal sistem (maks 100MB)" "sudo journalctl --vacuum-size=100M"
+# Limit journal system size
+do_task "Rotating and vacuuming system journal (max 100MB)" "sudo journalctl --vacuum-size=100M"
 
-# Kosongkan file log sistem - gunakan nullglob untuk menghindari literal string jika tidak ada match
+# Clear system log files - use nullglob to prevent literal string iteration when no matches exist
 if [ -d "/var/log" ]; then
-    # Simpan nullglob state lalu aktifkan
+    # Save nullglob state then enable it
     _old_nullglob=$(shopt -p nullglob 2>/dev/null || echo "")
     shopt -s nullglob
     
@@ -412,7 +426,7 @@ if [ -d "/var/log" ]; then
     if [ ${#logfiles[@]} -gt 0 ]; then
         for logfile in "${logfiles[@]}"; do
             if [ -f "$logfile" ] && [ -w "$logfile" ]; then
-                do_task "Mengosongkan file $(basename "$logfile")" "sudo truncate -s 0 '$logfile'"
+                do_task "Truncating log file: $(basename "$logfile")" "sudo truncate -s 0 '$logfile'"
             fi
         done
     fi
@@ -422,38 +436,48 @@ if [ -d "/var/log" ]; then
 fi
 
 if [ -d "/var/cache/netdata" ]; then
-    do_task "Membersihkan cache Netdata" "clean_netdata"
+    do_task "Cleaning Netdata cache" "clean_netdata"
 fi
 
-# --- BAGIAN 2: PEMBERSIHAN PENGGUNA ---
+# --- SECTION 2: USER ENVIRONMENT CLEANUP ---
 if is_interactive; then
-    echo -e "\n${BLUE}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${BLUE}${BOLD}│  👤 PEMBERSIHAN DIREKTORI PENGGUNA                         │${NC}"
-    echo -e "${BLUE}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}\n"
+    echo -e "\n${BLUE}${BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${NC}"
+    echo -e "${BLUE}${BOLD}┃  👤  PHASE 2: USER ENVIRONMENT MAINTENANCE                  ${BLUE}┃${NC}"
+    echo -e "${BLUE}${BOLD}┃  ${GRAY}Cleaning user cache and temporary files                    ${BLUE}┃${NC}"
+    echo -e "${BLUE}${BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${NC}\n"
 fi
 
-do_task "Menghapus isi direktori cache pengguna (~/.cache)" "rm -rf ~/.cache/*"
+do_task "Clearing user cache directory (~/.cache)" "rm -rf ~/.cache/*"
 
-# --- BAGIAN 3: PEMBERSIHAN BACKUP ---
+# --- SECTION 3: BACKUP DIRECTORY MANAGEMENT ---
 if is_interactive; then
-    echo -e "\n${GREEN}${BOLD}╭─────────────────────────────────────────────────────────────╮${NC}"
-    echo -e "${GREEN}${BOLD}│  📁 PEMBERSIHAN DIREKTORI BACKUP SPESIFIK                  │${NC}"
-    echo -e "${GREEN}${BOLD}╰─────────────────────────────────────────────────────────────╯${NC}\n"
+    echo -e "\n${GREEN}${BOLD}┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓${NC}"
+    echo -e "${GREEN}${BOLD}┃  📁  PHASE 3: BACKUP DIRECTORY OPTIMIZATION                 ${GREEN}┃${NC}"
+    echo -e "${GREEN}${BOLD}┃  ${GRAY}Managing backup storage at: ${CYAN}${BACKUP_DIR}${GREEN}┃${NC}"
+    echo -e "${GREEN}${BOLD}┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛${NC}\n"
 fi
 
-do_task "Menghapus folder backup lama di $BACKUP_DIR" "clean_backups"
+do_task "Removing old backup folders from $BACKUP_DIR" "clean_backups"
 report_backup_stats
 
-# Footer dengan animasi selesai (hanya jika interaktif)
+# Footer with completion animation (interactive mode only)
 if is_interactive; then
-    echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}${BOLD}║${WHITE}                     ✨ PROSES SELESAI ✨                     ${NC}${GREEN}║${NC}"
-    echo -e "${GREEN}${BOLD}║${CYAN}                   🎉 Semua tugas berhasil! 🎉                ${NC}${GREEN}║${NC}"
-    echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}\n"
-
-    # Tampilkan statistik atau informasi tambahan
-    echo -e "${GRAY}Script dijalankan pada: ${WHITE}$(date)${NC}"
-    echo -e "${GRAY}Direktori backup yang dibersihkan: ${WHITE}$BACKUP_DIR${NC}\n"
+    # Calculate final statistics
+    local end_time=$(date '+%Y-%m-%d %H:%M:%S')
+    local disk_after=$(df -h / | awk 'NR==2 {print $5}')
+    
+    echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}${BOLD}║${WHITE}                 ✨  MAINTENANCE COMPLETED  ✨                     ${NC}${GREEN}║${NC}"
+    echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}${BOLD}║  ${CYAN}All system cleanup operations executed successfully           ${GREEN}┃${NC}"
+    echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}${BOLD}║${GRAY}  Completion Time: ${WHITE}%-47s${GREEN}┃${NC}" "$end_time"
+    echo -e "${GREEN}${BOLD}║${GRAY}  Disk Usage: ${WHITE}%-52s${GREEN}┃${NC}" "$disk_after"
+    echo -e "${GREEN}${BOLD}║${GRAY}  Log File: ${WHITE}%-54s${GREEN}┃${NC}" "$LOG_FILE"
+    echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════════╝${NC}\n"
+    
+    echo -e "${CYAN}💡 Pro Tip:${NC} ${GRAY}Schedule this script via cron for automated maintenance.${NC}"
+    echo -e "${GRAY}   Example: 0 2 * * 0 /path/to/clean_backup_fixed.sh > /dev/null 2>&1${NC}\n"
 fi
 
 # Log script completion
