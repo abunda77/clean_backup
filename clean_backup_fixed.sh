@@ -372,7 +372,7 @@ if is_interactive; then
     # Header dengan styling menarik
     echo -e "\n${MAGENTA}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║${BOLD}${WHITE}                  🧹 SISTEM PEMBERSIHAN 🧹                    ${NC}${MAGENTA}║${NC}"
-    echo -e "${MAGENTA}║${BOLD}${CYAN}                     Script Otomatis v2.1                     ${NC}${MAGENTA}║${NC}"
+    echo -e "${MAGENTA}║${BOLD}${CYAN}                     Script Otomatis v2.2                     ${NC}${MAGENTA}║${NC}"
     echo -e "${MAGENTA}║${GRAY}                    Optimized for Dark Theme                   ${NC}${MAGENTA}║${NC}"
     echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════╝${NC}\n"
 
@@ -392,7 +392,34 @@ fi
 
 do_task "Menghapus paket dependensi yang tidak diperlukan" "sudo apt autoremove -y"
 do_task "Membersihkan cache paket APT" "sudo apt clean"
-do_task "Membersihkan log journal sistem (menjadi maks 100MB)" "sudo journalctl --vacuum-size=100M"
+
+# Pembersihan /tmp dan /var/tmp - hanya file yang lebih lama dari 7 hari dan tidak digunakan
+do_task "Membersihkan file lama di /tmp (>7 hari)" "sudo find /tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
+do_task "Membersihkan direktori kosong di /tmp" "sudo find /tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
+do_task "Membersihkan file lama di /var/tmp (>7 hari)" "sudo find /var/tmp -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true"
+do_task "Membersihkan direktori kosong di /var/tmp" "sudo find /var/tmp -maxdepth 1 -type d -empty -delete 2>/dev/null || true"
+
+# Batasi ukuran journal sistem
+do_task "Membersihkan log journal sistem (maks 100MB)" "sudo journalctl --vacuum-size=100M"
+
+# Kosongkan file log sistem - gunakan nullglob untuk menghindari literal string jika tidak ada match
+if [ -d "/var/log" ]; then
+    # Simpan nullglob state lalu aktifkan
+    _old_nullglob=$(shopt -p nullglob 2>/dev/null || echo "")
+    shopt -s nullglob
+    
+    logfiles=(/var/log/*.log)
+    if [ ${#logfiles[@]} -gt 0 ]; then
+        for logfile in "${logfiles[@]}"; do
+            if [ -f "$logfile" ] && [ -w "$logfile" ]; then
+                do_task "Mengosongkan file $(basename "$logfile")" "sudo truncate -s 0 '$logfile'"
+            fi
+        done
+    fi
+    
+    # Restore nullglob state
+    eval "$_old_nullglob" 2>/dev/null || shopt -u nullglob 2>/dev/null || true
+fi
 
 if [ -d "/var/cache/netdata" ]; then
     do_task "Membersihkan cache Netdata" "clean_netdata"
