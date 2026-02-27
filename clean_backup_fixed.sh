@@ -371,17 +371,18 @@ if is_interactive; then
     sleep 0.3
 
     # Professional header with system information
-    local hostname=$(hostname)
-    local os_info=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
-    local kernel=$(uname -r)
+    # Note: Variables declared without 'local' since this is outside a function
+    _header_hostname=$(hostname)
+    _header_os=$(lsb_release -d 2>/dev/null | cut -f2 || echo "Linux")
+    _header_time=$(date '+%Y-%m-%d %H:%M:%S')
     
     echo -e "\n${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${MAGENTA}║${BOLD}${WHITE}              🧹 SYSTEM MAINTENANCE & OPTIMIZATION                ${NC}${MAGENTA}║${NC}"
     echo -e "${MAGENTA}║${CYAN}                        Version 2.2 Professional                  ${NC}${MAGENTA}║${NC}"
     echo -e "${MAGENTA}╠══════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${MAGENTA}║${GRAY}  Host: ${WHITE}%-56s${MAGENTA}║${NC}" "$hostname"
-    echo -e "${MAGENTA}║${GRAY}  OS:   ${WHITE}%-56s${MAGENTA}║${NC}" "$os_info"
-    echo -e "${MAGENTA}║${GRAY}  Time: ${WHITE}%-56s${MAGENTA}║${NC}" "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf "${MAGENTA}║${GRAY}  Host: ${WHITE}%-56s${MAGENTA}║${NC}\n" "$_header_hostname"
+    printf "${MAGENTA}║${GRAY}  OS:   ${WHITE}%-56s${MAGENTA}║${NC}\n" "$_header_os"
+    printf "${MAGENTA}║${GRAY}  Time: ${WHITE}%-56s${MAGENTA}║${NC}\n" "$_header_time"
     echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}\n"
 
     # Initial loading simulation with information
@@ -392,6 +393,9 @@ if is_interactive; then
     echo -e "${CYAN}📊 System Status Overview:${NC}"
     echo -e "${GRAY}$(df -h / | awk 'NR==2 {printf "   Root Filesystem: %s used of %s (%s available)\n", $3, $2, $4}')${NC}"
     echo -e "${GRAY}$(free -h | awk '/^Mem:/ {printf "   Memory: %s used of %s (%s available)\n", $3, $2, $7}')${NC}\n"
+    
+    # Cleanup temporary header variables
+    unset _header_hostname _header_os _header_time
 else
     write_log "Running in non-interactive mode (cron)"
 fi
@@ -463,21 +467,24 @@ report_backup_stats
 # Footer with completion animation (interactive mode only)
 if is_interactive; then
     # Calculate final statistics
-    local end_time=$(date '+%Y-%m-%d %H:%M:%S')
-    local disk_after=$(df -h / | awk 'NR==2 {print $5}')
+    _footer_end_time=$(date '+%Y-%m-%d %H:%M:%S')
+    _footer_disk=$(df -h / | awk 'NR==2 {print $5}')
     
     echo -e "\n${GREEN}${BOLD}╔══════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}${BOLD}║${WHITE}                 ✨  MAINTENANCE COMPLETED  ✨                     ${NC}${GREEN}║${NC}"
     echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}${BOLD}║  ${CYAN}All system cleanup operations executed successfully           ${GREEN}┃${NC}"
     echo -e "${GREEN}${BOLD}╠══════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}${BOLD}║${GRAY}  Completion Time: ${WHITE}%-47s${GREEN}┃${NC}" "$end_time"
-    echo -e "${GREEN}${BOLD}║${GRAY}  Disk Usage: ${WHITE}%-52s${GREEN}┃${NC}" "$disk_after"
-    echo -e "${GREEN}${BOLD}║${GRAY}  Log File: ${WHITE}%-54s${GREEN}┃${NC}" "$LOG_FILE"
+    printf "${GREEN}${BOLD}║${GRAY}  Completion Time: ${WHITE}%-47s${GREEN}┃${NC}\n" "$_footer_end_time"
+    printf "${GREEN}${BOLD}║${GRAY}  Disk Usage: ${WHITE}%-52s${GREEN}┃${NC}\n" "$_footer_disk"
+    printf "${GREEN}${BOLD}║${GRAY}  Log File: ${WHITE}%-54s${GREEN}┃${NC}\n" "$LOG_FILE"
     echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════════════════════════╝${NC}\n"
     
     echo -e "${CYAN}💡 Pro Tip:${NC} ${GRAY}Schedule this script via cron for automated maintenance.${NC}"
     echo -e "${GRAY}   Example: 0 2 * * 0 /path/to/clean_backup_fixed.sh > /dev/null 2>&1${NC}\n"
+    
+    # Cleanup temporary footer variables
+    unset _footer_end_time _footer_disk
 fi
 
 # Log script completion
